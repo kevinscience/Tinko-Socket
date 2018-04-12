@@ -334,6 +334,11 @@ function generateData(type,from,message,activityId,userData){
     return JSON.stringify(response);
 }
 
+
+let insertPrivateChat = 'INSERT INTO privateChat(fromId,toId,msg) VALUES(?,?,?)',
+    insertActivityChat = 'INSERT INTO meetingChat(fromId,msg) VALUES(?,?)';
+let unReadPrivateChat = 'INSERT INTO privateChat(fromId,toId,msg,status) VALUES(?,?,?,?)';
+
 app.get('/1', function(req, res){
     res.sendFile(__dirname + '/socket2.html');
 });
