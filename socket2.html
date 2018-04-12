@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+    <title>Socket.IO chat</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font: 13px Helvetica, Arial; }
+        form { background: #000; padding: 3px; position: fixed; bottom: 0; width: 100%; }
+        form input { border: 0; padding: 10px; width: 90%; margin-right: .5%; }
+        form button { width: 9%; background: rgb(130, 224, 255); border: none; padding: 10px; }
+        #messages { list-style-type: none; margin: 0; padding: 0; }
+        #messages li { padding: 5px 10px; }
+        #messages li:nth-child(odd) { background: #eee; }
+        #messages { margin-bottom: 40px }
+    </style>
+</head>
+<body>
+<ul id="messages"></ul>
+<form action="">
+    <input id="m" autocomplete="off" /><button>Send</button>
+</form>
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+<script>
+    $(function () {
+        let socket = io(),
+            uid = "mrhUd8E7YNg3ZWW4EdEK5hIZfVE2",
+            pid = "pbc6cqcW80XHRbBJptIcqEVZpjY2";
+            // uid = "pbc6cqcW80XHRbBJptIcqEVZpjY2",
+            // pid = "mrhUd8E7YNg3ZWW4EdEK5hIZfVE2";
+
+
+        let group = "1iuLxFd8aMZVuYHR97do";
+        $('form').submit(function(){
+            //socket.emit("privateChat",uid,pid,$('#m').val());
+            socket.emit("groupChat",uid,group,$('#m').val());
+            $('#m').val('');
+            return false;
+        });
+        socket.emit("userLogin",uid);
+        // socket.emit("userLogin",uid);
+        // socket.emit("attendActivity",uid,[1,2,3]);
+        // //监听系统消息
+        // socket.emit("activityChat",1,uid,( new Date()).valueOf());
+        // socket.on("systemListener",function(msg){
+        //     console.log(msg);
+        // });
+        // //监听自己的端口
+        socket.on("connect"+uid,function(msg){
+            console.log(msg);
+        })
+        // socket.emit("joinANewMeet",4);
+    });
+</script>
+</body>
+</html>
