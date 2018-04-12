@@ -273,6 +273,7 @@ io.on('connection', function(socket){
         //     2 = "facebook好友确认"
         //     1 = "普通的好友确认" 比如a给b发送了请求 b确认了 就发送这个
         //     -1 = "确认了这个请求" 比如a给b发送了请求 b拒绝了 就发送这个
+        //      999 = 系统消息
         console.log("get friend request");
         console.log(requestData);
         if (requester!==""&&responser!==""&&msg!==""&&type!==""){
@@ -282,10 +283,20 @@ io.on('connection', function(socket){
                 msg:msg,
                 timestamp: currentTime
             }));
-            console.log("just send the request to:"+responser);
             //这时候确认好友了
             if (type === 1){
-
+                io.emit("mySendBox"+responser,JSON.stringify({
+                    type:999,
+                    requester:requester,
+                    msg:"你们已经是朋友拉 快开启聊天吧",
+                    timestamp: currentTime
+                }));
+                io.emit("mySendBox"+requester,JSON.stringify({
+                    type:999,
+                    requester:responser,
+                    msg:"你们已经是朋友拉 快开启聊天吧",
+                    timestamp: currentTime
+                }));
             }
         }
     });
