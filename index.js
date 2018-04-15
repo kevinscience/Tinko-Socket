@@ -22,7 +22,11 @@ let connection = mysql.createConnection({
     database : 'tinko'
 });
 connection.connect();
-
+let bodyParser = require('body-parser')
+app.use( bodyParser.json() );       // to support JSON-encoded bodies
+app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
+    extended: true
+}));
 //变量区域
 //用来存储好友之间关系
 let UserFriendList =  {
@@ -362,11 +366,35 @@ app.get('/README', function(req, res){
 app.get('/test', function(req, res){
     res.sendFile(__dirname + '/test.html');
 });
-app.post('/attendActivity',function (req, res) {
-    console.log("123");
-    console.log(req.query);
-    console.log("123");
+
+//整套推送体系
+let currentUserPushToken = {};
+app.post('/login',function (req, res) {
+    let data = req.body;
+    let uid = data.uid,
+        token = data.token,
+        updateSql = "INSERT INTO userPushToken(uid,pushToken) VALUES(?,?) ON DUPLICATE KEY UPDATE pushToken = ?";
+    //每次会更新接收的接口 方便下次使用
+    currentUserPushToken[uid] = token;
+    connection.query(updateSql,[uid,token,token],function (err, result) {
+        if(err){
+            console.log('[UPDATE ERROR] - ',err.message);
+            return;
+        }
+    });
 });
+function getUserPushToken(){
+    connection.query("SELECT * FROM userPushToken WHERE status = 1", function (err, result, fields) {
+        if (err) throw err;
+        for (let i = 0;i<result.length;i++){
+            let data = result[i];
+            currentUserPushToken[data.uid] = data.pushToken;
+        }
+    });
+}
+
+//开机就调用
+getUserPushToken();
 
 http.listen(4000, function(){
     console.log('listening on *:4000');
