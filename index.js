@@ -383,6 +383,17 @@ app.post('/login',function (req, res) {
         }
     });
 });
+app.post('/logout',function (req, res) {
+    let uid = req.body.uid,
+        updateSql = "UPDATE userPushToken set status = 0 WHERE uid = ?";
+    currentUserPushToken[uid] = "";
+    connection.query(updateSql,[uid],function (err, result) {
+        if(err){
+            console.log('[UPDATE ERROR] - ',err.message);
+            return;
+        }
+    });
+});
 function getUserPushToken(){
     connection.query("SELECT * FROM userPushToken WHERE status = 1", function (err, result, fields) {
         if (err) throw err;
@@ -395,6 +406,32 @@ function getUserPushToken(){
 
 //开机就调用
 getUserPushToken();
+
+
+//获取群聊天记录
+app.post('/getChatHistory',function (req, res) {
+    let meetId = (req.body.meetId)?req.body.meetId:-1,
+        lastId = (req.body.lastId)?req.body.lastId:-1;
+    if (meetId!==-1){
+        let checkSql = "";
+        if (parseInt(lastId)===-1){
+            checkSql = "select * from meetingChat WHERE meetId = '"+meetId+"' order by id desc LIMIT 10 "
+        }else{
+            checkSql = "select * from meetingChat WHERE meetId = '"+meetId+"' and id < "+lastId+" order by id desc LIMIT 10 "
+        }
+        connection.query(checkSql, function (err, result, fields) {
+            if (err) throw err;
+            res.send(JSON.stringify({
+                status:0,
+                data:result
+            }))
+        });
+    }else{
+        res.send(JSON.stringify({
+            status:1
+        }))
+    }
+});
 
 http.listen(4000, function(){
     console.log('listening on *:4000');

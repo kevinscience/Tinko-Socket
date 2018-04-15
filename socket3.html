@@ -38,6 +38,18 @@
             }
         });
 
+        $.ajax({
+            type: "POST",
+            url: "getChatHistory",
+            data: {
+                meetId:"1iuLxFd8aMZVuYHR97do",
+                lastId:-1,
+            },
+            success:function (data) {
+                console.log(data);
+            }
+        });
+
         let group = "1iuLxFd8aMZVuYHR97do";
         $('form').submit(function(){
             // socket.emit("privateChat",uid,pid,$('#m').val());
