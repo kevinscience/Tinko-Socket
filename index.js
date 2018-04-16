@@ -15,6 +15,7 @@ let app = require('express')();
 let http = require('http').Server(app);
 let io = require('socket.io')(http);
 let mysql      = require('mysql');
+let request = require('request');
 let connection = mysql.createConnection({
     host     : '47.89.187.42',
     user     : 'root',
@@ -240,6 +241,10 @@ io.on('connection', function(socket){
         }else{
             insertSql(unReadPrivateChat,[fromId,toId,msg,1]);
         }
+        //currentUserPushToken
+        if (currentUserPushToken[toId]){
+            sendPushMessage("未读消息",msg,currentUserPushToken[toId]);
+        }
         io.emit("connect"+toId,generateData(1,fromId,msg));
         io.emit("mySendBox"+fromId,generateData(1,toId,msg));
     });
@@ -404,6 +409,31 @@ function getUserPushToken(){
     });
 }
 
+//发送push消息
+function sendPushMessage(title,body,token){
+    let headersOpt = {
+        "content-type": "application/json",
+    };
+    request(
+        {
+            method:'post',
+            url:'https://expo.io/--/api/v2/push/send',
+            form: {
+                "to":token,
+                "sound":"default",
+                "data":{
+                    "hello":"hello"
+                },
+                "title":title,
+                "body":body
+            },
+            headers: headersOpt,
+            json: true,
+        }, function (error, response, body) {
+            console.log(body);
+        });
+}
+
 //开机就调用
 getUserPushToken();
 
@@ -411,13 +441,14 @@ getUserPushToken();
 //获取群聊天记录
 app.post('/getChatHistory',function (req, res) {
     let meetId = (req.body.meetId)?req.body.meetId:-1,
-        lastId = (req.body.lastId)?req.body.lastId:-1;
+        lastId = (req.body.lastId)?req.body.lastId:-1,
+        limit = (req.body.limit)?req.body.limit:15;
     if (meetId!==-1){
         let checkSql = "";
         if (parseInt(lastId)===-1){
-            checkSql = "select * from meetingChat WHERE meetId = '"+meetId+"' order by id desc LIMIT 10 "
+            checkSql = "select * from meetingChat WHERE meetId = '"+meetId+"' order by id desc LIMIT "+limit
         }else{
-            checkSql = "select * from meetingChat WHERE meetId = '"+meetId+"' and id < "+lastId+" order by id desc LIMIT 10 "
+            checkSql = "select * from meetingChat WHERE meetId = '"+meetId+"' and id < "+lastId+" order by id desc LIMIT "+limit
         }
         connection.query(checkSql, function (err, result, fields) {
             if (err) throw err;
@@ -432,6 +463,7 @@ app.post('/getChatHistory',function (req, res) {
         }))
     }
 });
+
 
 http.listen(4000, function(){
     console.log('listening on *:4000');
