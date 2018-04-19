@@ -43,10 +43,11 @@
             url: "getChatHistory",
             data: {
                 meetId:"1iuLxFd8aMZVuYHR97do",
-                lastId:-1,
+                lastId:82,
+                limit:10
             },
             success:function (data) {
-                console.log(data);
+                console.log(JSON.parse(data));
             }
         });
 
