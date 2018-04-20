@@ -130,6 +130,17 @@ function participateInMeets(uid,MeetId) {
     let setDoc = firebaseDb.collection("Users").doc(uid).collection("ParticipatingMeets").doc(MeetId).set(data);
 }
 
+//用户离开活动
+function leaveMeets(uid,MeetId) {
+    let user = MeetsInfo[MeetId],
+        num = user.indexOf(uid);
+    if (num !== -1){
+        //从活动事件里删除
+        MeetsInfo[MeetId].splice(num, 1);
+        return true;
+    }
+    return false;
+}
 
 //每次用户点击群聊这个组以后立刻更新
 function getListWhoParticipatedInMeetsByMeetId(MeetId) {
@@ -209,9 +220,24 @@ io.on('connection', function(socket){
         io.emit("mySendBox"+uid,generateData(0,uid,"啦啦啦啦 进活动了",MeetId,""));
     });
 
+    //type = 1 为创建
+    //type = 2 为加入
+    //type = -1 为退出
+    socket.on("Meets",function (uid,MeetId,type) {
+        if (type === 1){
+            participateInMeets(uid,MeetId);
+            io.emit("mySendBox"+uid,generateData(0,uid,"您已经进入活动",MeetId,""));
+        }else if (type === -1){
+            //判断是否本来就在活动里
+            let status = leaveMeets(uid,MeetId);
+            if (status){
+                io.emit("mySendBox"+uid,generateData(0,uid,"你退出了活动",MeetId,""));
+            }
+        }
+    });
+
     socket.on('userLogin',function (uid) {
         userId = uid;
-        console.log(uid+" is login");
         initUserWhenUserLogin(uid);
         if (currentOnlineUserForChat[userId] === undefined){
             currentOnlineUserForChat[userId] = 1;
@@ -243,7 +269,7 @@ io.on('connection', function(socket){
         }
         //currentUserPushToken
         if (currentUserPushToken[toId]){
-            sendPushMessage("未读消息",msg,currentUserPushToken[toId]);
+            sendPushMessage("未读消息",UserInformation[fromId].username + ":" + msg,currentUserPushToken[toId]);
         }
         io.emit("connect"+toId,generateData(1,fromId,msg));
         io.emit("mySendBox"+fromId,generateData(1,toId,msg));
@@ -268,11 +294,41 @@ io.on('connection', function(socket){
                 }
             }
         });
+        //给旁观者发送
+        io.emit("activity"+groupId,JSON.stringify({
+            userData:userData,
+            fromId:fromId,
+            msg:msg
+        }))
 
+    });
+    socket.on("byStander",function (fromId,groupId,msg) {
+        let user = MeetsInfo[groupId],
+            userData = UserInformation[fromId];
+        connection.query('INSERT INTO meetingChat(fromId,meetId,msg,data) VALUES(?,?,?,?)',[fromId,groupId,msg,JSON.stringify(userData)], function(err, result) {
+            if (err) throw err;
+            let id = result.insertId;
+            for (let i = 0;i<user.length;i++){
+                if (user[i]!==fromId){
+                    if (currentOnlineUserForChat[user[i]]!==undefined && currentOnlineUserForChat[user[i]] !== 0){
+                        //在线
+                        io.emit("connect"+user[i],generateData(2,fromId,msg,groupId,userData));
+                    }else{
+                        //不在线的话我就把这条消息的id存入userUnReadMeetingChat的数据库里面
+                        insertSql("INSERT INTO userUnReadMeetingChat (chatId,userId) VALUES(?,?)",[id,user[i]]);
+                    }
+                }
+            }
+        });
+        //给旁观者发送
+        io.emit("activity"+groupId,JSON.stringify({
+            userData:userData,
+            fromId:fromId,
+            msg:msg
+        }))
     });
 
     socket.on('NewFriendRequest',function (requestData) {
-        console.log("we get the request");
         let data = JSON.parse(requestData),
             requester = (data.requester !== undefined)?data.requester:"",
             responser = (data.responser !== undefined)?data.responser:"",
@@ -283,8 +339,6 @@ io.on('connection', function(socket){
         //     1 = "普通的好友确认" 比如a给b发送了请求 b确认了 就发送这个
         //     -1 = "确认了这个请求" 比如a给b发送了请求 b拒绝了 就发送这个
         //      999 = 系统消息
-        console.log("get friend request");
-        console.log(requestData);
         if (requester!==""&&responser!==""&&msg!==""&&type!==""){
             io.emit("systemListener"+responser,JSON.stringify({
                 type:type,
