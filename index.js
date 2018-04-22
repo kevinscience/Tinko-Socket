@@ -23,7 +23,7 @@ let connection = mysql.createConnection({
     database : 'tinko'
 });
 connection.connect();
-let bodyParser = require('body-parser')
+let bodyParser = require('body-parser');
 app.use( bodyParser.json() );       // to support JSON-encoded bodies
 app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
     extended: true
@@ -104,6 +104,7 @@ function getFriend(uid) {
 
 //获取用户参与的活动
 function getParticipatedMeets(uid) {
+    console.log("开始获取用户参与的活动");
     let meetRef = firebaseDb.collection("Users").doc(uid).collection("ParticipatingMeets");
     meetRef.get().then((querySnapshot)=>{
         querySnapshot.forEach((doc)=>{
@@ -132,12 +133,17 @@ function participateInMeets(uid,MeetId) {
 
 //用户离开活动
 function leaveMeets(uid,MeetId) {
-    let user = MeetsInfo[MeetId],
-        num = user.indexOf(uid);
-    if (num !== -1){
-        //从活动事件里删除
-        MeetsInfo[MeetId].splice(num, 1);
-        return true;
+
+    console.log("有人要退出活动");
+    console.log(MeetsInfo);
+    let user = MeetsInfo[MeetId];
+    if (user){
+        let num = user.indexOf(uid);
+        if (num !== -1){
+            //从活动事件里删除
+            MeetsInfo[MeetId].splice(num, 1);
+            return true;
+        }
     }
     return false;
 }
