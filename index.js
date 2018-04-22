@@ -229,15 +229,20 @@ io.on('connection', function(socket){
     //type = 1 为创建
     //type = 2 为加入
     //type = -1 为退出
+    //type = -2 剔人
     socket.on("Meets",function (uid,MeetId,type) {
         if (type === 1){
             participateInMeets(uid,MeetId);
             io.emit("mySendBox"+uid,generateData(0,uid,"您已经进入活动",MeetId,""));
-        }else if (type === -1){
+        }else if (type === -1||type === -2){
             //判断是否本来就在活动里
             let status = leaveMeets(uid,MeetId);
             if (status){
-                io.emit("mySendBox"+uid,generateData(0,uid,"你退出了活动",MeetId,""));
+                if (type === -1){
+                    io.emit("mySendBox"+uid,generateData(0,uid,"You have left the group",MeetId,""));
+                }else{
+                    io.emit("mySendBox"+uid,generateData(0,uid,"You have been removed",MeetId,""));
+                }
             }
         }
     });
