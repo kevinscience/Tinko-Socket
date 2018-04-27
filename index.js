@@ -223,7 +223,7 @@ io.on('connection', function(socket){
     //用户登录  只有RootNavigator才做这个操作
     socket.on('createMeets',function (uid,MeetId) {
         participateInMeets(uid,MeetId);
-        io.emit("mySendBox"+uid,generateData(0,uid,"啦啦啦啦 进活动了",MeetId,""));
+        io.emit("mySendBox"+uid,generateData(0,uid,"the Meet has been created",MeetId,""));
     });
 
     //type = 1 为创建
@@ -271,47 +271,54 @@ io.on('connection', function(socket){
     });
 
     //私聊接口
-    socket.on('privateChat',function(fromId,toId,msg){
-        console.log("fromId " + fromId);
-        if (checkUserStatus(toId)){
-            insertSql(insertPrivateChat,[fromId,toId,msg]);
-        }else{
-            insertSql(unReadPrivateChat,[fromId,toId,msg,1]);
+    socket.on('privateChat',function(fromId,toId,msg,code){
+        if (msg!==""){
+            if (checkUserStatus(toId)){
+                insertSql(insertPrivateChat,[fromId,toId,msg]);
+            }else{
+                insertSql(unReadPrivateChat,[fromId,toId,msg,1]);
+            }
+            //currentUserPushToken
+            if (currentUserPushToken[toId]){
+                sendPushMessage("未读消息",UserInformation[fromId].username + ":" + msg,currentUserPushToken[toId]);
+            }
+            io.emit("connect"+toId,generateData(1,fromId,msg));
+            io.emit("mySendBox"+fromId,JSON.stringify({
+                type:1,
+                code:code,
+                toId:toId,
+                msg:msg
+            }));
         }
-        //currentUserPushToken
-        if (currentUserPushToken[toId]){
-            sendPushMessage("未读消息",UserInformation[fromId].username + ":" + msg,currentUserPushToken[toId]);
-        }
-        io.emit("connect"+toId,generateData(1,fromId,msg));
-        io.emit("mySendBox"+fromId,generateData(1,toId,msg));
     });
 
     socket.on('groupChat',function (fromId,groupId,msg) {
-        let user = MeetsInfo[groupId],
-            userData = UserInformation[fromId];
-        io.emit("mySendBox"+fromId,generateData(2,fromId,msg,groupId,""));
-        connection.query('INSERT INTO meetingChat(fromId,meetId,msg,data) VALUES(?,?,?,?)',[fromId,groupId,msg,JSON.stringify(userData)], function(err, result) {
-            if (err) throw err;
-            let id = result.insertId;
-            for (let i = 0;i<user.length;i++){
-                if (user[i]!==fromId){
-                    if (currentOnlineUserForChat[user[i]]!==undefined && currentOnlineUserForChat[user[i]] !== 0){
-                        //在线
-                        io.emit("connect"+user[i],generateData(2,fromId,msg,groupId,userData));
-                    }else{
-                        //不在线的话我就把这条消息的id存入userUnReadMeetingChat的数据库里面
-                        insertSql("INSERT INTO userUnReadMeetingChat (chatId,userId) VALUES(?,?)",[id,user[i]]);
+        if (msg!==""){
+            let user = MeetsInfo[groupId],
+                userData = UserInformation[fromId];
+            io.emit("mySendBox"+fromId,generateData(2,fromId,msg,groupId,""));
+            connection.query('INSERT INTO meetingChat(fromId,meetId,msg,data) VALUES(?,?,?,?)',[fromId,groupId,msg,JSON.stringify(userData)], function(err, result) {
+                if (err) throw err;
+                let id = result.insertId;
+                for (let i = 0;i<user.length;i++){
+                    if (user[i]!==fromId){
+                        if (currentOnlineUserForChat[user[i]]!==undefined && currentOnlineUserForChat[user[i]] !== 0){
+                            //在线
+                            io.emit("connect"+user[i],generateData(2,fromId,msg,groupId,userData));
+                        }else{
+                            //不在线的话我就把这条消息的id存入userUnReadMeetingChat的数据库里面
+                            insertSql("INSERT INTO userUnReadMeetingChat (chatId,userId) VALUES(?,?)",[id,user[i]]);
+                        }
                     }
                 }
-            }
-        });
-        //给旁观者发送
-        io.emit("activity"+groupId,JSON.stringify({
-            userData:userData,
-            fromId:fromId,
-            msg:msg
-        }))
-
+            });
+            //给旁观者发送
+            io.emit("activity"+groupId,JSON.stringify({
+                userData:userData,
+                fromId:fromId,
+                msg:msg
+            }))
+        }
     });
     socket.on("byStander",function (fromId,groupId,msg) {
         let user = MeetsInfo[groupId],
@@ -394,7 +401,7 @@ function insertSql(sqlStr,addSqlParams) {
 
 //数据整合器
 let currentTime = Date.parse( new Date());
-setTimeout(function(){
+setInterval(function(){
     currentTime = Date.parse( new Date());
 },1000);
 function generateData(type,from,message,activityId,userData){
@@ -533,5 +540,3 @@ app.post('/getChatHistory',function (req, res) {
 http.listen(4000, function(){
     console.log('listening on *:4000');
 });
-
-getListWhoParticipatedInMeetsByMeetId("1iuLxFd8aMZVuYHR97do");
