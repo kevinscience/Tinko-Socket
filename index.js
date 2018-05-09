@@ -15,6 +15,7 @@ let app = require('express')();
 let http = require('http').Server(app);
 let io = require('socket.io')(http);
 let mysql      = require('mysql');
+let moment = require('moment');
 let request = require('request');
 let connection = mysql.createConnection({
     host     : '47.89.187.42',
@@ -43,6 +44,8 @@ let MeetsInfo = {
 let UserInformation = {
 
 };
+
+let dismissedGroup = [];
 
 
 //重启服务器时候才会这么操作！！！
@@ -133,9 +136,6 @@ function participateInMeets(uid,MeetId) {
 
 //用户离开活动
 function leaveMeets(uid,MeetId) {
-
-    console.log("有人要退出活动");
-    console.log(MeetsInfo);
     let user = MeetsInfo[MeetId];
     if (user){
         let num = user.indexOf(uid);
@@ -155,6 +155,7 @@ function getListWhoParticipatedInMeetsByMeetId(MeetId) {
         doc => {
             if (doc.exists){
                 let data = doc.data().participatingUsersList;
+                //Array
                 for (uid in data) {
                     if (data[uid].status === true){
                         if (MeetsInfo[MeetId] === undefined){
@@ -188,14 +189,14 @@ function changeUnReadPrivateChatMessageMark(uid) {
     //     console.log(result);
     // });
     connection.query("UPDATE privateChat SET privateChat.status = 0 WHERE privateChat.toId = '"+uid+"' and privateChat.status = 1", function (err, result) {
-        if (err) throw err;
+        if (err) { console.log(err);return;}
         console.log(result.affectedRows + " record(s) updated");
     });
 }
 //获取用户未读的群聊消息
 function changeUnReadMeetsChatInfoMark(uid) {
     connection.query("UPDATE userUnReadMeetingChat SET userUnReadMeetingChat.status = 0 WHERE userUnReadMeetingChat.userId = '"+uid+"' and userUnReadMeetingChat.status = 1", function (err, result) {
-        if (err) throw err;
+        if (err) { console.log(err);return;}
         console.log(result.affectedRows + " record(s) updated");
     });
 }
@@ -223,25 +224,48 @@ io.on('connection', function(socket){
     //用户登录  只有RootNavigator才做这个操作
     socket.on('createMeets',function (uid,MeetId) {
         participateInMeets(uid,MeetId);
-        io.emit("mySendBox"+uid,generateData(0,uid,"the Meet has been created",MeetId,""));
+        io.emit("mySendBox"+uid,generateData(0,uid,"the Meet has been created",MeetId));
     });
 
     //type = 1 为创建
     //type = 2 为加入
     //type = -1 为退出
     //type = -2 剔人
+    //type = 3 dismiss group
     socket.on("Meets",function (uid,MeetId,type) {
         if (type === 1){
             participateInMeets(uid,MeetId);
-            io.emit("mySendBox"+uid,generateData(0,uid,"您已经进入活动",MeetId,""));
+            io.emit("mySendBox"+uid,generateData(0,uid,"You have joined the group",MeetId));
         }else if (type === -1||type === -2){
             //判断是否本来就在活动里
             let status = leaveMeets(uid,MeetId);
             if (status){
                 if (type === -1){
-                    io.emit("mySendBox"+uid,generateData(0,uid,"You have left the group",MeetId,""));
+                    io.emit("mySendBox"+uid,generateData(0,uid,"You have left the group",MeetId));
                 }else{
-                    io.emit("mySendBox"+uid,generateData(0,uid,"You have been removed",MeetId,""));
+                    io.emit("mySendBox"+uid,generateData(0,uid,"You have been removed",MeetId));
+                }
+            }
+        }else if(type === 2){
+            let user = MeetsInfo[MeetId];
+            participateInMeets(uid,MeetId);
+            if (user){
+                for (let i = 0;i<user.length;i++){
+                    io.emit("mySendBox"+user[i],generateData(0,user[i],"someone have joined the group",MeetId));
+                }
+                if (MeetsInfo[MeetId].indexOf(uid) === -1){
+                    MeetsInfo[MeetId].push(uid);
+                }
+            }
+            io.emit("mySendBox"+uid,generateData(0,uid,"You have joined the group",MeetId));
+        }else if (type === 3){
+            //
+            console.log("删除活动");
+            let user = MeetsInfo[MeetId];
+            updateDismissedGroup(MeetId);
+            if (user){
+                for (let i = 0;i<user.length;i++){
+                    io.emit("mySendBox"+user[i],generateData(0,user[i],"the Group has been dismissed",MeetId));
                 }
             }
         }
@@ -250,6 +274,7 @@ io.on('connection', function(socket){
     socket.on('userLogin',function (uid) {
         userId = uid;
         initUserWhenUserLogin(uid);
+        console.log("在获取数据:",uid);
         if (currentOnlineUserForChat[userId] === undefined){
             currentOnlineUserForChat[userId] = 1;
         }else{
@@ -258,15 +283,23 @@ io.on('connection', function(socket){
         // 寻找未读消息发送
         //未读群聊写成4
         connection.query("SELECT * FROM meetingChat WHERE id IN (SELECT chatId FROM userUnReadMeetingChat WHERE userId = '"+uid+"' AND status = 1)", function (err, result, fields) {
-            io.emit("connect"+uid,generateData(4,uid,result));
-            //修改他们的状态
-            changeUnReadPrivateChatMessageMark(uid);
+            if (err){console.log(err);return;}
+            console.log("发送消息:",result);
+            if (result){
+                io.emit("connect"+uid,generateData(4,uid,result));
+                //修改他们的状态
+                changeUnReadPrivateChatMessageMark(uid);
+            }
         });
         //未读私聊写成3
         connection.query("SELECT * FROM privateChat WHERE status = 1 and toId = '"+uid+"'", function (err, result, fields) {
-            io.emit("connect"+uid,generateData(3,uid,result));
-            //修改他们的状态
-            changeUnReadMeetsChatInfoMark(uid);
+            if (err){console.log(err);return;}
+            console.log("发送消息:",result);
+            if (result){
+                io.emit("connect"+uid,generateData(3,uid,result));
+                //修改他们的状态
+                changeUnReadMeetsChatInfoMark(uid);
+            }
         });
     });
 
@@ -293,18 +326,18 @@ io.on('connection', function(socket){
     });
 
     socket.on('groupChat',function (fromId,groupId,msg) {
-        if (msg!==""){
-            let user = MeetsInfo[groupId],
-                userData = UserInformation[fromId];
-            io.emit("mySendBox"+fromId,generateData(2,fromId,msg,groupId,""));
-            connection.query('INSERT INTO meetingChat(fromId,meetId,msg,data) VALUES(?,?,?,?)',[fromId,groupId,msg,JSON.stringify(userData)], function(err, result) {
-                if (err) throw err;
+        console.log(dismissedGroup);
+        if (msg!==""&&dismissedGroup.indexOf(groupId)=== -1){
+            let user = MeetsInfo[groupId];
+            io.emit("mySendBox"+fromId,generateData(2,fromId,msg,groupId));
+            connection.query('INSERT INTO meetingChat(fromId,meetId,msg) VALUES(?,?,?)',[fromId,groupId,msg], function(err, result) {
+                if (err) { console.log(err);return;}
                 let id = result.insertId;
                 for (let i = 0;i<user.length;i++){
                     if (user[i]!==fromId){
                         if (currentOnlineUserForChat[user[i]]!==undefined && currentOnlineUserForChat[user[i]] !== 0){
                             //在线
-                            io.emit("connect"+user[i],generateData(2,fromId,msg,groupId,userData));
+                            io.emit("connect"+user[i],generateData(2,fromId,msg,groupId));
                         }else{
                             //不在线的话我就把这条消息的id存入userUnReadMeetingChat的数据库里面
                             insertSql("INSERT INTO userUnReadMeetingChat (chatId,userId) VALUES(?,?)",[id,user[i]]);
@@ -314,33 +347,36 @@ io.on('connection', function(socket){
             });
             //给旁观者发送
             io.emit("activity"+groupId,JSON.stringify({
-                userData:userData,
                 fromId:fromId,
                 msg:msg
             }))
         }
     });
     socket.on("byStander",function (fromId,groupId,msg) {
-        let user = MeetsInfo[groupId],
-            userData = UserInformation[fromId];
-        connection.query('INSERT INTO meetingChat(fromId,meetId,msg,data) VALUES(?,?,?,?)',[fromId,groupId,msg,JSON.stringify(userData)], function(err, result) {
-            if (err) throw err;
+        let user = MeetsInfo[groupId];
+        getListWhoParticipatedInMeetsByMeetId(groupId);
+        connection.query('INSERT INTO meetingChat(fromId,meetId,msg) VALUES(?,?,?)',[fromId,groupId,msg], function(err, result) {
+            if (err) { console.log(err);return;}
             let id = result.insertId;
-            for (let i = 0;i<user.length;i++){
-                if (user[i]!==fromId){
-                    if (currentOnlineUserForChat[user[i]]!==undefined && currentOnlineUserForChat[user[i]] !== 0){
-                        //在线
-                        io.emit("connect"+user[i],generateData(2,fromId,msg,groupId,userData));
+            console.log("byStander:",user);
+            if (user){
+                for (let i = 0;i<user.length;i++){
+                    if (user[i]!==fromId){
+                        if (currentOnlineUserForChat[user[i]]!==undefined && currentOnlineUserForChat[user[i]] !== 0){
+                            //在线
+                            io.emit("connect"+user[i],generateData(2,fromId,msg,groupId));
+                        }else{
+                            //不在线的话我就把这条消息的id存入userUnReadMeetingChat的数据库里面
+                            insertSql("INSERT INTO userUnReadMeetingChat (chatId,userId) VALUES(?,?)",[id,user[i]]);
+                        }
                     }else{
-                        //不在线的话我就把这条消息的id存入userUnReadMeetingChat的数据库里面
-                        insertSql("INSERT INTO userUnReadMeetingChat (chatId,userId) VALUES(?,?)",[id,user[i]]);
+                        io.emit("mySendBox"+user[i],generateData(2,fromId,msg,groupId));
                     }
                 }
             }
         });
         //给旁观者发送
         io.emit("activity"+groupId,JSON.stringify({
-            userData:userData,
             fromId:fromId,
             msg:msg
         }))
@@ -400,11 +436,12 @@ function insertSql(sqlStr,addSqlParams) {
 }
 
 //数据整合器
-let currentTime = Date.parse( new Date());
+let currentTime = moment(Date.now()).format('YYYY-MM-DD hh:mm:ss');
 setInterval(function(){
-    currentTime = Date.parse( new Date());
+    currentTime =moment(Date.now()).format('YYYY-MM-DD hh:mm:ss');
 },1000);
-function generateData(type,from,message,activityId,userData){
+//generateData(0,uid,"You have been removed",MeetId,"")
+function generateData(type,from,message,activityId){
     let response;
     if (activityId === undefined){
         response = {
@@ -419,8 +456,7 @@ function generateData(type,from,message,activityId,userData){
             from:from,
             message:message,
             time:currentTime,
-            activityId:activityId,
-            userData:userData
+            activityId:activityId
         };
     }
     return JSON.stringify(response);
@@ -459,6 +495,12 @@ app.post('/login',function (req, res) {
             return;
         }
     });
+    res.end();
+});
+app.post('/getListWhoParticipatedInMeetsByMeetId',function (req,res) {
+    let meetId = req.body.meetId;
+    getListWhoParticipatedInMeetsByMeetId(meetId);
+    res.end("okay");
 });
 app.post('/logout',function (req, res) {
     let uid = req.body.uid,
@@ -466,17 +508,40 @@ app.post('/logout',function (req, res) {
     currentUserPushToken[uid] = "";
     connection.query(updateSql,[uid],function (err, result) {
         if(err){
+            res.end("okay");
             console.log('[UPDATE ERROR] - ',err.message);
             return;
         }
     });
+    res.end("okay");
 });
 function getUserPushToken(){
     connection.query("SELECT * FROM userPushToken WHERE status = 1", function (err, result, fields) {
-        if (err) throw err;
+        if (err) { console.log(err);return;}
         for (let i = 0;i<result.length;i++){
             let data = result[i];
             currentUserPushToken[data.uid] = data.pushToken;
+        }
+    });
+}
+
+function getDismissedGroup() {
+    connection.query("SELECT * FROM dismissedGroup", function (err, result, fields) {
+        if (err) { console.log(err);return;}
+        for (let i = 0;i<result.length;i++){
+            let data = result[i];
+            dismissedGroup.push(data.meetId);
+        }
+    });
+}
+
+function updateDismissedGroup(meetId) {
+    let updateSql = "INSERT INTO dismissedGroup(meetId) VALUES(?)";
+    connection.query(updateSql,[meetId],function (err, result) {
+        dismissedGroup.push(meetId);
+        if(err){
+            console.log('[UPDATE ERROR] - ',err.message);
+            return;
         }
     });
 }
@@ -508,10 +573,12 @@ function sendPushMessage(title,body,token){
 
 //开机就调用
 getUserPushToken();
+getDismissedGroup();
 
 
 //获取群聊天记录
 app.post('/getChatHistory',function (req, res) {
+    console.log("收到请求:",(new Date()));
     let meetId = (req.body.meetId)?req.body.meetId:-1,
         lastId = (req.body.lastId)?req.body.lastId:-1,
         limit = (req.body.limit)?req.body.limit:15;
@@ -523,14 +590,16 @@ app.post('/getChatHistory',function (req, res) {
             checkSql = "select * from meetingChat WHERE meetId = '"+meetId+"' and id < "+lastId+" order by id desc LIMIT "+limit
         }
         connection.query(checkSql, function (err, result, fields) {
-            if (err) throw err;
-            res.send(JSON.stringify({
+            if (err) { console.log(err);return;}
+            console.log("发送请求:",(new Date()));
+            res.end(JSON.stringify({
                 status:0,
                 data:result
             }))
         });
     }else{
-        res.send(JSON.stringify({
+        console.log("发送请求:",(new Date()));
+        res.end(JSON.stringify({
             status:1
         }))
     }
