@@ -21,7 +21,9 @@ let connection = mysql.createConnection({
     host     : '47.89.187.42',
     user     : 'root',
     password : 'password',
-    database : 'tinko'
+    database : 'tinko',
+    useConnectionPooling: true,
+    charset : 'utf8mb4'
 });
 connection.connect();
 let bodyParser = require('body-parser');
@@ -189,6 +191,7 @@ function changeUnReadPrivateChatMessageMark(uid) {
     //     console.log(result);
     // });
     connection.query("UPDATE privateChat SET privateChat.status = 0 WHERE privateChat.toId = '"+uid+"' and privateChat.status = 1", function (err, result) {
+        //connection.release();
         if (err) { console.log(err);return;}
         console.log(result.affectedRows + " record(s) updated");
     });
@@ -196,7 +199,8 @@ function changeUnReadPrivateChatMessageMark(uid) {
 //获取用户未读的群聊消息
 function changeUnReadMeetsChatInfoMark(uid) {
     connection.query("UPDATE userUnReadMeetingChat SET userUnReadMeetingChat.status = 0 WHERE userUnReadMeetingChat.userId = '"+uid+"' and userUnReadMeetingChat.status = 1", function (err, result) {
-        if (err) { console.log(err);return;}
+        //connection.release();
+        if (err) { console.log("未读消息更新错误",err);return;}
         console.log(result.affectedRows + " record(s) updated");
     });
 }
@@ -274,7 +278,7 @@ io.on('connection', function(socket){
     socket.on('userLogin',function (uid) {
         userId = uid;
         initUserWhenUserLogin(uid);
-        console.log("在获取数据:",uid);
+        console.log("在获取用户登陆数据:",uid);
         if (currentOnlineUserForChat[userId] === undefined){
             currentOnlineUserForChat[userId] = 1;
         }else{
@@ -283,8 +287,9 @@ io.on('connection', function(socket){
         // 寻找未读消息发送
         //未读群聊写成4
         connection.query("SELECT * FROM meetingChat WHERE id IN (SELECT chatId FROM userUnReadMeetingChat WHERE userId = '"+uid+"' AND status = 1)", function (err, result, fields) {
-            if (err){console.log(err);return;}
-            console.log("发送消息:",result);
+            //connection.release();
+            if (err){console.log("群聊获取err:"+err);return;}
+            console.log("群聊获取成功:",result);
             if (result){
                 io.emit("connect"+uid,generateData(4,uid,result));
                 //修改他们的状态
@@ -293,8 +298,9 @@ io.on('connection', function(socket){
         });
         //未读私聊写成3
         connection.query("SELECT * FROM privateChat WHERE status = 1 and toId = '"+uid+"'", function (err, result, fields) {
-            if (err){console.log(err);return;}
-            console.log("发送消息:",result);
+            //connection.release();
+            if (err){console.log("私聊获取err:"+err);return;}
+            console.log("私聊获取成功:",result);
             if (result){
                 io.emit("connect"+uid,generateData(3,uid,result));
                 //修改他们的状态
@@ -331,6 +337,8 @@ io.on('connection', function(socket){
             let user = MeetsInfo[groupId];
             io.emit("mySendBox"+fromId,generateData(2,fromId,msg,groupId));
             connection.query('INSERT INTO meetingChat(fromId,meetId,msg) VALUES(?,?,?)',[fromId,groupId,msg], function(err, result) {
+                //connection.release();
+                console.log('INSERT INTO meetingChat(fromId,meetId,msg) VALUES(?,?,?)',[fromId,groupId,msg]);
                 if (err) { console.log(err);return;}
                 let id = result.insertId;
                 for (let i = 0;i<user.length;i++){
@@ -356,6 +364,7 @@ io.on('connection', function(socket){
         let user = MeetsInfo[groupId];
         getListWhoParticipatedInMeetsByMeetId(groupId);
         connection.query('INSERT INTO meetingChat(fromId,meetId,msg) VALUES(?,?,?)',[fromId,groupId,msg], function(err, result) {
+            //connection.release();
             if (err) { console.log(err);return;}
             let id = result.insertId;
             console.log("byStander:",user);
@@ -428,6 +437,7 @@ io.on('connection', function(socket){
 });
 function insertSql(sqlStr,addSqlParams) {
     connection.query(sqlStr,addSqlParams,function (err, result) {
+        //connection.release();
         if(err){
             console.log('[INSERT ERROR] - ',err.message);
             return;
@@ -490,8 +500,10 @@ app.post('/login',function (req, res) {
     //每次会更新接收的接口 方便下次使用
     currentUserPushToken[uid] = token;
     connection.query(updateSql,[uid,token,token],function (err, result) {
+        //connection.release();
         if(err){
-            console.log('[UPDATE ERROR] - ',err.message);
+            console.log('Login [UPDATE ERROR] - ',err.message);
+            res.end();
             return;
         }
     });
@@ -500,23 +512,31 @@ app.post('/login',function (req, res) {
 app.post('/getListWhoParticipatedInMeetsByMeetId',function (req,res) {
     let meetId = req.body.meetId;
     getListWhoParticipatedInMeetsByMeetId(meetId);
-    res.end("okay");
+    res.end(JSON.stringify({
+        status:0
+    }));
 });
 app.post('/logout',function (req, res) {
     let uid = req.body.uid,
         updateSql = "UPDATE userPushToken set status = 0 WHERE uid = ?";
     currentUserPushToken[uid] = "";
     connection.query(updateSql,[uid],function (err, result) {
+        //connection.release();
         if(err){
-            res.end("okay");
-            console.log('[UPDATE ERROR] - ',err.message);
+            console.log('logout [UPDATE ERROR] - ',err.message);
+            res.end(JSON.stringify({
+                status:1
+            }));
             return;
         }
     });
-    res.end("okay");
+    res.end(JSON.stringify({
+        status:0
+    }));
 });
 function getUserPushToken(){
     connection.query("SELECT * FROM userPushToken WHERE status = 1", function (err, result, fields) {
+        //connection.release();
         if (err) { console.log(err);return;}
         for (let i = 0;i<result.length;i++){
             let data = result[i];
@@ -527,6 +547,7 @@ function getUserPushToken(){
 
 function getDismissedGroup() {
     connection.query("SELECT * FROM dismissedGroup", function (err, result, fields) {
+        //connection.release();
         if (err) { console.log(err);return;}
         for (let i = 0;i<result.length;i++){
             let data = result[i];
@@ -538,6 +559,7 @@ function getDismissedGroup() {
 function updateDismissedGroup(meetId) {
     let updateSql = "INSERT INTO dismissedGroup(meetId) VALUES(?)";
     connection.query(updateSql,[meetId],function (err, result) {
+        //connection.release();
         dismissedGroup.push(meetId);
         if(err){
             console.log('[UPDATE ERROR] - ',err.message);
@@ -590,7 +612,14 @@ app.post('/getChatHistory',function (req, res) {
             checkSql = "select * from meetingChat WHERE meetId = '"+meetId+"' and id < "+lastId+" order by id desc LIMIT "+limit
         }
         connection.query(checkSql, function (err, result, fields) {
-            if (err) { console.log(err);return;}
+            //connection.release();
+            if (err) {
+                console.log("getChatHistory:",err);
+                res.end(JSON.stringify({
+                    status:0,
+                    data:result
+                }));
+                return;}
             console.log("发送请求:",(new Date()));
             res.end(JSON.stringify({
                 status:0,
