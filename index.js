@@ -17,7 +17,7 @@ let io = require('socket.io')(http);
 let mysql      = require('mysql');
 let moment = require('moment');
 let request = require('request');
-let connection = mysql.createConnection({
+let connection = mysql.createPool({
     host     : '47.89.187.42',
     user     : 'root',
     password : 'password',
@@ -25,7 +25,8 @@ let connection = mysql.createConnection({
     useConnectionPooling: true,
     charset : 'utf8mb4'
 });
-connection.connect();
+let https = require("https");
+// connection.connect();
 let bodyParser = require('body-parser');
 app.use( bodyParser.json() );       // to support JSON-encoded bodies
 app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
@@ -208,7 +209,7 @@ function changeUnReadMeetsChatInfoMark(uid) {
 
 //用户登陆后启动用户
 function initUserWhenUserLogin(uid) {
-    getFriend(uid);
+    // getFriend(uid);
     getParticipatedMeets(uid);
     getUserDetailInfo(uid);
 }
@@ -218,7 +219,7 @@ let currentOnlineUserForChat = {};
 
 //判断好友是否在线
 function checkUserStatus(uid) {
-    return (currentOnlineUserForChat[uid] !== undefined && currentOnlineUserForChat[uid] !== 0)
+    return (currentOnlineUserForChat[uid] === true)
 }
 
 //聊天的全部服务器信息
@@ -237,9 +238,12 @@ io.on('connection', function(socket){
     //type = -2 剔人
     //type = 3 dismiss group
     socket.on("Meets",function (uid,MeetId,type) {
+        console.log(UserInformation);
+        console.log(uid);
+        let userName = UserInformation[uid].username;
         if (type === 1){
             participateInMeets(uid,MeetId);
-            io.emit("mySendBox"+uid,generateData(0,uid,"You have joined the group",MeetId));
+            io.emit("mySendBox"+uid,generateData(0,uid,"You have create the group",MeetId));
         }else if (type === -1||type === -2){
             //判断是否本来就在活动里
             let status = leaveMeets(uid,MeetId);
@@ -255,7 +259,12 @@ io.on('connection', function(socket){
             participateInMeets(uid,MeetId);
             if (user){
                 for (let i = 0;i<user.length;i++){
-                    io.emit("mySendBox"+user[i],generateData(0,user[i],"someone have joined the group",MeetId));
+                    if (userName){
+                        io.emit("mySendBox"+user[i],generateData(0,user[i],userName + " has joined the group",MeetId));
+                    }else{
+                        io.emit("mySendBox"+user[i],generateData(0,user[i],"Someone has joined the group",MeetId));
+                    }
+                    console.log(userName + " have joined the group")
                 }
                 if (MeetsInfo[MeetId].indexOf(uid) === -1){
                     MeetsInfo[MeetId].push(uid);
@@ -263,27 +272,21 @@ io.on('connection', function(socket){
             }
             io.emit("mySendBox"+uid,generateData(0,uid,"You have joined the group",MeetId));
         }else if (type === 3){
-            //
-            console.log("删除活动");
             let user = MeetsInfo[MeetId];
             updateDismissedGroup(MeetId);
             if (user){
                 for (let i = 0;i<user.length;i++){
-                    io.emit("mySendBox"+user[i],generateData(0,user[i],"the Group has been dismissed",MeetId));
+                    io.emit("mySendBox"+user[i],generateData(0,user[i],"The Group has been dismissed",MeetId));
                 }
             }
         }
     });
 
     socket.on('userLogin',function (uid) {
+        console.log("userLogin");
         userId = uid;
         initUserWhenUserLogin(uid);
-        console.log("在获取用户登陆数据:",uid);
-        if (currentOnlineUserForChat[userId] === undefined){
-            currentOnlineUserForChat[userId] = 1;
-        }else{
-            currentOnlineUserForChat[userId] = currentOnlineUserForChat[userId]+1;
-        }
+        currentOnlineUserForChat[userId] = true;
         // 寻找未读消息发送
         //未读群聊写成4
         connection.query("SELECT * FROM meetingChat WHERE id IN (SELECT chatId FROM userUnReadMeetingChat WHERE userId = '"+uid+"' AND status = 1)", function (err, result, fields) {
@@ -332,7 +335,7 @@ io.on('connection', function(socket){
     });
 
     socket.on('groupChat',function (fromId,groupId,msg) {
-        console.log(dismissedGroup);
+        console.log("现在的在线状态时",currentOnlineUserForChat);
         if (msg!==""&&dismissedGroup.indexOf(groupId)=== -1){
             let user = MeetsInfo[groupId];
             io.emit("mySendBox"+fromId,generateData(2,fromId,msg,groupId));
@@ -343,11 +346,14 @@ io.on('connection', function(socket){
                 let id = result.insertId;
                 for (let i = 0;i<user.length;i++){
                     if (user[i]!==fromId){
-                        if (currentOnlineUserForChat[user[i]]!==undefined && currentOnlineUserForChat[user[i]] !== 0){
+                        if (currentOnlineUserForChat[user[i]]===true){
                             //在线
                             io.emit("connect"+user[i],generateData(2,fromId,msg,groupId));
                         }else{
-                            //不在线的话我就把这条消息的id存入userUnReadMeetingChat的数据库里面
+                            //不在线的话我就把这条消息的id存入userUnReadMeetingChat的数据库里面            
+                            if (currentUserPushToken[user[i]]){
+                                sendPushMessage("未读群聊消息",UserInformation[fromId].username + ":" + msg,currentUserPushToken[user[i]]);
+                            }
                             insertSql("INSERT INTO userUnReadMeetingChat (chatId,userId) VALUES(?,?)",[id,user[i]]);
                         }
                     }
@@ -371,7 +377,7 @@ io.on('connection', function(socket){
             if (user){
                 for (let i = 0;i<user.length;i++){
                     if (user[i]!==fromId){
-                        if (currentOnlineUserForChat[user[i]]!==undefined && currentOnlineUserForChat[user[i]] !== 0){
+                        if (currentOnlineUserForChat[user[i]] === true){
                             //在线
                             io.emit("connect"+user[i],generateData(2,fromId,msg,groupId));
                         }else{
@@ -429,8 +435,9 @@ io.on('connection', function(socket){
 
     socket.on('disconnect', function() {
         //从活动序列里删除自己
+        console.log("disconnect from client");
         if (userId !== undefined){
-            currentOnlineUserForChat[userId] = currentOnlineUserForChat[userId]-1;
+            currentOnlineUserForChat[userId] = false;
         }
     });
 
@@ -477,17 +484,8 @@ let insertPrivateChat = 'INSERT INTO privateChat(fromId,toId,msg) VALUES(?,?,?)'
     insertActivityChat = 'INSERT INTO meetingChat(fromId,msg) VALUES(?,?)';
 let unReadPrivateChat = 'INSERT INTO privateChat(fromId,toId,msg,status) VALUES(?,?,?,?)';
 
-app.get('/1', function(req, res){
-    res.sendFile(__dirname + '/socket2.html');
-});
-app.get('/2', function(req, res){
-    res.sendFile(__dirname + '/socket3.html');
-});
-app.get('/README', function(req, res){
-    res.sendFile(__dirname + '/README.html');
-});
-app.get('/test', function(req, res){
-    res.sendFile(__dirname + '/test.html');
+app.get('/', function(req, res){
+    res.sendFile(__dirname + '/index.html');
 });
 
 //整套推送体系
@@ -634,6 +632,23 @@ app.post('/getChatHistory',function (req, res) {
     }
 });
 
+setInterval(function () {
+    https.get('https://us-central1-tinko-64673.cloudfunctions.net/checkAllMeetsStatus', (resp) => {
+        console.log("call cloundfunction success");
+    }).on("error", (err) => {
+        console.log("Error: " + err.message);
+    });
+},60*60*1000*12);
+
+// https.get('https://us-central1-tinko-64673.cloudfunctions.net/checkAllMeetsStatus', (resp) => {
+//     console.log("call cloundfunction success");
+// }).on("error", (err) => {
+//     console.log("Error: " + err.message);
+// });
+
+app.get('*', function(req, res){
+    res.sendFile(__dirname+"/404.html");
+});
 
 http.listen(4000, function(){
     console.log('listening on *:4000');

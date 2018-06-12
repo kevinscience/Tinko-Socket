@@ -16,7 +16,6 @@ app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
 
 //获取群聊天记录
 app.post('/getChatHistory',function (req, res) {
-    console.log("收到请求:",(new Date()));
     let meetId = (req.body.meetId)?req.body.meetId:-1,
         lastId = (req.body.lastId)?req.body.lastId:-1,
         limit = (req.body.limit)?req.body.limit:15;
