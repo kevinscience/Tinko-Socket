@@ -314,6 +314,7 @@ io.on('connection', function(socket){
 
     //私聊接口
     socket.on('privateChat',function(fromId,toId,msg,code){
+        console.log("recieve private message:",msg);
         if (msg!==""){
             if (checkUserStatus(toId)){
                 insertSql(insertPrivateChat,[fromId,toId,msg]);
@@ -453,9 +454,9 @@ function insertSql(sqlStr,addSqlParams) {
 }
 
 //数据整合器
-let currentTime = moment(Date.now()).format('YYYY-MM-DD hh:mm:ss');
+let currentTime = moment(Date.now()).format();
 setInterval(function(){
-    currentTime =moment(Date.now()).format('YYYY-MM-DD hh:mm:ss');
+    currentTime =moment(Date.now()).format();
 },1000);
 //generateData(0,uid,"You have been removed",MeetId,"")
 function generateData(type,from,message,activityId){
