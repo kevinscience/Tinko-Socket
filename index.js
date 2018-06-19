@@ -43,6 +43,10 @@ let MeetsInfo = {
 
 };
 
+let userToken = {
+    
+};
+
 //用来存储用户信息
 let UserInformation = {
 
@@ -225,7 +229,7 @@ function checkUserStatus(uid) {
 //聊天的全部服务器信息
 io.on('connection', function(socket){
 
-    let userId;
+    let userId,userSessionToken;
     //用户登录  只有RootNavigator才做这个操作
     socket.on('createMeets',function (uid,MeetId) {
         participateInMeets(uid,MeetId);
@@ -242,10 +246,12 @@ io.on('connection', function(socket){
         console.log(uid);
         let userName = UserInformation[uid].username;
         if (type === 1){
+            console.log("       ",uid,"创建活动");
             participateInMeets(uid,MeetId);
             io.emit("mySendBox"+uid,generateData(0,uid,"You have create the group",MeetId));
         }else if (type === -1||type === -2){
             //判断是否本来就在活动里
+            console.log("       ",uid,"退出活动");
             let status = leaveMeets(uid,MeetId);
             if (status){
                 if (type === -1){
@@ -255,6 +261,7 @@ io.on('connection', function(socket){
                 }
             }
         }else if(type === 2){
+            console.log("       ",uid,"加入活动");
             let user = MeetsInfo[MeetId];
             participateInMeets(uid,MeetId);
             if (user){
@@ -272,6 +279,7 @@ io.on('connection', function(socket){
             }
             io.emit("mySendBox"+uid,generateData(0,uid,"You have joined the group",MeetId));
         }else if (type === 3){
+            console.log("       ",uid,"dismiss活动");
             let user = MeetsInfo[MeetId];
             updateDismissedGroup(MeetId);
             if (user){
@@ -282,34 +290,54 @@ io.on('connection', function(socket){
         }
     });
 
-    socket.on('userLogin',function (uid) {
-        console.log("userLogin");
-        userId = uid;
-        initUserWhenUserLogin(uid);
-        currentOnlineUserForChat[userId] = true;
-        // 寻找未读消息发送
-        //未读群聊写成4
-        connection.query("SELECT * FROM meetingChat WHERE id IN (SELECT chatId FROM userUnReadMeetingChat WHERE userId = '"+uid+"' AND status = 1)", function (err, result, fields) {
-            //connection.release();
-            if (err){console.log("群聊获取err:"+err);return;}
-            console.log("群聊获取成功:",result);
-            if (result){
-                io.emit("connect"+uid,generateData(4,uid,result));
-                //修改他们的状态
-                changeUnReadPrivateChatMessageMark(uid);
+    socket.on('userLogin',function (uid,sessionToken) {
+        userSessionToken = sessionToken;
+        console.log("获取到的userToken是:",sessionToken," 系统里的：",userToken[uid]);
+        if (sessionToken===userToken[uid]||userToken[uid]===undefined){
+            if (userToken[uid] === undefined){
+                userToken[uid] = sessionToken;
             }
-        });
-        //未读私聊写成3
-        connection.query("SELECT * FROM privateChat WHERE status = 1 and toId = '"+uid+"'", function (err, result, fields) {
-            //connection.release();
-            if (err){console.log("私聊获取err:"+err);return;}
-            console.log("私聊获取成功:",result);
-            if (result){
-                io.emit("connect"+uid,generateData(3,uid,result));
-                //修改他们的状态
-                changeUnReadMeetsChatInfoMark(uid);
-            }
-        });
+            userId = uid;
+            initUserWhenUserLogin(uid);
+            currentOnlineUserForChat[userId] = true;
+            // 寻找未读消息发送
+            //未读群聊写成4
+            connection.query("SELECT * FROM meetingChat WHERE id IN (SELECT chatId FROM userUnReadMeetingChat WHERE userId = '"+uid+"' AND status = 1)", function (err, result, fields) {
+                //connection.release();
+                if (err){console.log("群聊获取err:"+err);return;}
+                console.log("群聊获取成功:",result);
+                if (result){
+                    io.emit("connect"+uid,generateData(4,uid,result));
+                    //修改他们的状态
+                    changeUnReadPrivateChatMessageMark(uid);
+                }
+            });
+            //未读私聊写成3
+            connection.query("SELECT * FROM privateChat WHERE status = 1 and toId = '"+uid+"'", function (err, result, fields) {
+                //connection.release();
+                if (err){console.log("私聊获取err:"+err);return;}
+                console.log("私聊获取成功:",result);
+                if (result){
+                    io.emit("connect"+uid,generateData(3,uid,result));
+                    //修改他们的状态
+                    changeUnReadMeetsChatInfoMark(uid);
+                }
+            });
+            io.emit("System"+uid,JSON.stringify({
+                token:userToken[uid]
+            }));
+        }else{
+            console.log("===========重复登录==========");
+            console.log("你的设备sessionToken是",sessionToken,"单要求的是",userToken[uid]);
+            io.emit("System"+uid,JSON.stringify({
+                token:userToken[uid]
+            }));
+            socket.disconnect();
+        }
+    });
+
+    socket.on('getPushed',function () {
+        socket.disconnect();
     });
 
     //私聊接口
@@ -317,15 +345,20 @@ io.on('connection', function(socket){
         console.log("recieve private message:",msg);
         if (msg!==""){
             if (checkUserStatus(toId)){
+                console.log("   the user is online");
                 insertSql(insertPrivateChat,[fromId,toId,msg]);
+                io.emit("connect"+toId,generateData(1,fromId,msg));
             }else{
+                console.log("   the user is offline,send to message box");
                 insertSql(unReadPrivateChat,[fromId,toId,msg,1]);
             }
             //currentUserPushToken
             if (currentUserPushToken[toId]){
                 sendPushMessage("未读消息",UserInformation[fromId].username + ":" + msg,currentUserPushToken[toId]);
             }
-            io.emit("connect"+toId,generateData(1,fromId,msg));
+            // else{
+            //     io.emit("connect"+toId,generateData(1,fromId,msg));
+            // }
             io.emit("mySendBox"+fromId,JSON.stringify({
                 type:1,
                 code:code,
@@ -367,6 +400,7 @@ io.on('connection', function(socket){
             }))
         }
     });
+
     socket.on("byStander",function (fromId,groupId,msg) {
         let user = MeetsInfo[groupId];
         getListWhoParticipatedInMeetsByMeetId(groupId);
@@ -383,6 +417,9 @@ io.on('connection', function(socket){
                             io.emit("connect"+user[i],generateData(2,fromId,msg,groupId));
                         }else{
                             //不在线的话我就把这条消息的id存入userUnReadMeetingChat的数据库里面
+                            if (currentUserPushToken[user[i]]){
+                                sendPushMessage("未读群聊消息",UserInformation[fromId].username + ":" + msg,currentUserPushToken[user[i]]);
+                            }
                             insertSql("INSERT INTO userUnReadMeetingChat (chatId,userId) VALUES(?,?)",[id,user[i]]);
                         }
                     }else{
@@ -434,10 +471,25 @@ io.on('connection', function(socket){
         }
     });
 
+    socket.on('hang',function () {
+        console.log("用户进入后台，挂起服务");
+        if (userId !== undefined){
+            currentOnlineUserForChat[userId] = false;
+        }
+    });
+
+    socket.on('quit',function () {
+        if (userId !== undefined&&userSessionToken===userToken[userId]){
+            currentOnlineUserForChat[userId] = false;
+        }
+        console.log("链接关闭");
+        socket.disconnect();
+    });
+
     socket.on('disconnect', function() {
         //从活动序列里删除自己
         console.log("disconnect from client");
-        if (userId !== undefined){
+        if (userId !== undefined&&userSessionToken===userToken[userId]){
             currentOnlineUserForChat[userId] = false;
         }
     });
@@ -508,6 +560,7 @@ app.post('/login',function (req, res) {
     });
     res.end();
 });
+
 app.post('/getListWhoParticipatedInMeetsByMeetId',function (req,res) {
     let meetId = req.body.meetId;
     getListWhoParticipatedInMeetsByMeetId(meetId);
@@ -515,6 +568,27 @@ app.post('/getListWhoParticipatedInMeetsByMeetId',function (req,res) {
         status:0
     }));
 });
+
+app.post('/getDeviceId',function (req,res) {
+    let userId = req.body.userId,
+        deviceId = req.body.deviceId;
+    if (userId&&deviceId){
+        if (userToken[userId]!==undefined&&deviceId!==userToken[userId]){
+            if (currentUserPushToken[userId]){
+                console.log("给用户发送notification");
+                sendPushMessage("TINKO Team","Your account has been logged on other device",currentUserPushToken[userId]);
+            }else{
+                console.log("找不到那个用户的notification的token");
+            }
+        }
+        userToken[userId] = deviceId;
+        console.log("get DeviceID from :",userId," and token:",deviceId);
+    }
+    res.end(JSON.stringify({
+        status:0
+    }));
+});
+
 app.post('/logout',function (req, res) {
     let uid = req.body.uid,
         updateSql = "UPDATE userPushToken set status = 0 WHERE uid = ?";
@@ -533,6 +607,7 @@ app.post('/logout',function (req, res) {
         status:0
     }));
 });
+
 function getUserPushToken(){
     connection.query("SELECT * FROM userPushToken WHERE status = 1", function (err, result, fields) {
         //connection.release();
